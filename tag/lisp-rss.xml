@@ -1,0 +1,66 @@
+<?xml version="1.0"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"> <channel> <title>CuriousCain</title> <link></link> <atom:link href="/rss.xml" rel="self" type="application/rss+xml" /> <language>en-us</language> <pubDate>Sun, 11 Aug 2019 02:17:31 +0100</pubDate> <item> <title>Build a Text Editor in Lisp - Part 1</title> <link>/posts/Build-a-Text-Editor-in-Lisp---Part-1.html</link> <pubDate>2019-08-10</pubDate> <author>Joel Lord</author> <guid isPermaLink="true">/posts/Build-a-Text-Editor-in-Lisp---Part-1.html</guid> <category><![CDATA[ lisp ]]></category><category><![CDATA[ part 1 ]]></category><category><![CDATA[ text editor ]]></category> <description><![CDATA[ <h2>Introduction</h2>
+
+<p>In this series of posts, we'll go over building a text editor in Lisp, based on Antirez' great work on the minimal editor, <a href="https://github.com/antirez/kilo" >Kilo</a>, and as an adaptation of the brilliant C-based <a href="https://viewsourcecode.org/snaptoken/kilo/index.html" >Snaptoken tutorials</a>.</p>
+
+<h2>Setup</h2>
+
+<p>I'll be using <a href="http://www.sbcl.org/" >SBCL</a> and <a href="https://www.quicklisp.org/beta/" >Quicklisp</a> on Linux, so I cannot guarantee all of this will work correctly on Windows or Mac. Platform-specific things will need to be adapted for your chosen OS. I'll try to point these out when I'm aware of them.</p>
+
+<p>We'll start by creating our Quicklisp project.<br/>
+Navigate to your Quicklisp local-projects directory - for me, this is <code>~/home/quicklisp/local-projects</code> - and create a new directory for the project (mine is called &quot;tex&quot;).<br/>
+In there we'll create two files: <code>tex.asd</code> and <code>tex.lisp</code>.</p>
+
+<p><code>tex.asd</code> Will contain our project specification and build information, currently as follows:</p>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code"><i><span class="symbol">asdf:defsystem</span></i> <span class="keyword">#:tex</span>
+  <span class="keyword">:components</span> <span class="paren2">(<span class="code"><span class="paren3">(<span class="code"><span class="keyword">:file</span> <span class="string">"tex"</span></span>)</span></span>)</span></span>)</span></span></code></pre>
+
+<p><code>tex.lisp</code> For now will contain our basic setup code to make sure everything builds and runs smoothly before we start writing any real code.</p>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code"><i><span class="symbol">defpackage</span></i> <span class="keyword">#:tex</span>
+  <span class="paren2">(<span class="code"><span class="keyword">:use</span> <span class="keyword">:cl</span></span>)</span>
+  <span class="paren2">(<span class="code"><span class="keyword">:export</span> main</span>)</span></span>)</span>
+  
+<span class="paren1">(<span class="code">in-package <span class="keyword">:tex</span></span>)</span>
+  
+<span class="paren1">(<span class="code"><i><span class="symbol">defun</span></i> main <span class="paren2">(<span class="code"></span>)</span>
+  <span class="paren2">(<span class="code">format t <span class="string">"OK~%"</span></span>)</span></span>)</span></span></code></pre>
+
+<blockquote>
+<h5><strong>NOTE:</strong> Of course, anywhere you see <code>tex</code>, you'll want to replace this with your chosen project name.</h5>
+</blockquote>
+
+<p>We define our <code>tex</code> package and export its main function, so we can call it from slime or elsewhere later* and use it as the build entry point in a later step, also.<br/>
+We declare that everything below the <code>(in-package :tex)</code> line, is read into the <code>tex</code> package and so will need to be called with the syntax <code>(tex:main)</code>.<br/>
+Lastly, we create our <code>main</code> function and use <a href="http://www.lispworks.com/documentation/HyperSpec/Body/f_format.htm" ><code>format</code></a> to print &quot;OK&quot;.  </p>
+
+<p><code>format</code> uses <a href="https://www.gnu.org/software/kawa/Format.html" >directives</a> in the control string to interpolate variables, as substitutes for common escaped characters such as newline (<code>\n</code>), and for various other text formatting-related helper shortcuts. Here, we use the <code>~%</code> directive for its newline purpose. Had we wanted to substitute a variable or other string into the format, we could write something like <code>(format t &quot;Hello ~a~%&quot; &quot;world!&quot;)</code> which would substitute the <code>~a</code> for &quot;world!&quot; and the <code>~%</code> will give us the newline, as expected.</p>
+
+<blockquote>
+<h6>*Parts of this fail to work in slime, for reasons that will become clear in the next part, but for now this will work fine.</h6>
+</blockquote>
+
+<p>We can, now, take this opportunity to run and check that everything works fine. In your slime buffer, or SBCL REPL, enter:  </p>
+
+<p><code>(ql:quickload :tex)</code><br/>
+<code>(tex:main)</code>  </p>
+
+<p>Where <code>:tex</code> is the your chosen project name.<br/>
+Your output should look like this:</p>
+
+<pre><code><span class="code">CL-USER&gt; <span class="paren1">(<span class="code">ql:quickload <span class="keyword">:tex</span></span>)</span>
+To load "tex":
+  Load 1 ASDF system:
+    tex
+<span class="comment">; Loading "tex"
+</span>
+<span class="paren1">(<span class="code"><span class="keyword">:TEX</span></span>)</span>
+CL-USER&gt; <span class="paren1">(<span class="code">tex:main</span>)</span>
+OK
+NIL
+CL-USER&gt; </span></code></pre>
+
+<p><br />
+Providing this went smoothly and your output is similar to mine, we're ready to move on to the next step!</p>
+ ]]></description> </item> </channel> </rss>

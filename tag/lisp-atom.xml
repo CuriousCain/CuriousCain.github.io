@@ -1,0 +1,66 @@
+<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom"> <title>CuriousCain</title> <link href=""/> <link type="application/atom+xml" rel="self" href="/atom.xml"/> <updated>Sun, 11 Aug 2019 02:17:31 +0100</updated> <author> <name>Joel Lord</name> </author> <entry> <link type="text/html" rel="alternate" href="/posts/Build-a-Text-Editor-in-Lisp---Part-1.html"/> <title>Build a Text Editor in Lisp - Part 1</title> <published>2019-08-10</published> <updated>2019-08-10</updated> <author> <name>Joel Lord</name> <uri></uri> </author> <content type="html">&lt;h2&gt;Introduction&lt;/h2&gt;
+
+&lt;p&gt;In this series of posts, we&#039;ll go over building a text editor in Lisp, based on Antirez&#039; great work on the minimal editor, &lt;a href=&quot;https://github.com/antirez/kilo&quot; &gt;Kilo&lt;/a&gt;, and as an adaptation of the brilliant C-based &lt;a href=&quot;https://viewsourcecode.org/snaptoken/kilo/index.html&quot; &gt;Snaptoken tutorials&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2&gt;Setup&lt;/h2&gt;
+
+&lt;p&gt;I&#039;ll be using &lt;a href=&quot;http://www.sbcl.org/&quot; &gt;SBCL&lt;/a&gt; and &lt;a href=&quot;https://www.quicklisp.org/beta/&quot; &gt;Quicklisp&lt;/a&gt; on Linux, so I cannot guarantee all of this will work correctly on Windows or Mac. Platform-specific things will need to be adapted for your chosen OS. I&#039;ll try to point these out when I&#039;m aware of them.&lt;/p&gt;
+
+&lt;p&gt;We&#039;ll start by creating our Quicklisp project.&lt;br/&gt;
+Navigate to your Quicklisp local-projects directory - for me, this is &lt;code&gt;~/home/quicklisp/local-projects&lt;/code&gt; - and create a new directory for the project (mine is called &amp;quot;tex&amp;quot;).&lt;br/&gt;
+In there we&#039;ll create two files: &lt;code&gt;tex.asd&lt;/code&gt; and &lt;code&gt;tex.lisp&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;&lt;code&gt;tex.asd&lt;/code&gt; Will contain our project specification and build information, currently as follows:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;i&gt;&lt;span class=&quot;symbol&quot;&gt;asdf:defsystem&lt;/span&gt;&lt;/i&gt; &lt;span class=&quot;keyword&quot;&gt;#:tex&lt;/span&gt;
+  &lt;span class=&quot;keyword&quot;&gt;:components&lt;/span&gt; &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren3&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:file&lt;/span&gt; &lt;span class=&quot;string&quot;&gt;&quot;tex&quot;&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;code&gt;tex.lisp&lt;/code&gt; For now will contain our basic setup code to make sure everything builds and runs smoothly before we start writing any real code.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;i&gt;&lt;span class=&quot;symbol&quot;&gt;defpackage&lt;/span&gt;&lt;/i&gt; &lt;span class=&quot;keyword&quot;&gt;#:tex&lt;/span&gt;
+  &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:use&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;:cl&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+  &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:export&lt;/span&gt; main&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+  
+&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;in-package &lt;span class=&quot;keyword&quot;&gt;:tex&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+  
+&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;i&gt;&lt;span class=&quot;symbol&quot;&gt;defun&lt;/span&gt;&lt;/i&gt; main &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;/span&gt;)&lt;/span&gt;
+  &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;format t &lt;span class=&quot;string&quot;&gt;&quot;OK~%&quot;&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;h5&gt;&lt;strong&gt;NOTE:&lt;/strong&gt; Of course, anywhere you see &lt;code&gt;tex&lt;/code&gt;, you&#039;ll want to replace this with your chosen project name.&lt;/h5&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;We define our &lt;code&gt;tex&lt;/code&gt; package and export its main function, so we can call it from slime or elsewhere later* and use it as the build entry point in a later step, also.&lt;br/&gt;
+We declare that everything below the &lt;code&gt;(in-package :tex)&lt;/code&gt; line, is read into the &lt;code&gt;tex&lt;/code&gt; package and so will need to be called with the syntax &lt;code&gt;(tex:main)&lt;/code&gt;.&lt;br/&gt;
+Lastly, we create our &lt;code&gt;main&lt;/code&gt; function and use &lt;a href=&quot;http://www.lispworks.com/documentation/HyperSpec/Body/f_format.htm&quot; &gt;&lt;code&gt;format&lt;/code&gt;&lt;/a&gt; to print &amp;quot;OK&amp;quot;.  &lt;/p&gt;
+
+&lt;p&gt;&lt;code&gt;format&lt;/code&gt; uses &lt;a href=&quot;https://www.gnu.org/software/kawa/Format.html&quot; &gt;directives&lt;/a&gt; in the control string to interpolate variables, as substitutes for common escaped characters such as newline (&lt;code&gt;\n&lt;/code&gt;), and for various other text formatting-related helper shortcuts. Here, we use the &lt;code&gt;~%&lt;/code&gt; directive for its newline purpose. Had we wanted to substitute a variable or other string into the format, we could write something like &lt;code&gt;(format t &amp;quot;Hello ~a~%&amp;quot; &amp;quot;world!&amp;quot;)&lt;/code&gt; which would substitute the &lt;code&gt;~a&lt;/code&gt; for &amp;quot;world!&amp;quot; and the &lt;code&gt;~%&lt;/code&gt; will give us the newline, as expected.&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;h6&gt;*Parts of this fail to work in slime, for reasons that will become clear in the next part, but for now this will work fine.&lt;/h6&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;We can, now, take this opportunity to run and check that everything works fine. In your slime buffer, or SBCL REPL, enter:  &lt;/p&gt;
+
+&lt;p&gt;&lt;code&gt;(ql:quickload :tex)&lt;/code&gt;&lt;br/&gt;
+&lt;code&gt;(tex:main)&lt;/code&gt;  &lt;/p&gt;
+
+&lt;p&gt;Where &lt;code&gt;:tex&lt;/code&gt; is the your chosen project name.&lt;br/&gt;
+Your output should look like this:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;CL-USER&amp;gt; &lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;ql:quickload &lt;span class=&quot;keyword&quot;&gt;:tex&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+To load &quot;tex&quot;:
+  Load 1 ASDF system:
+    tex
+&lt;span class=&quot;comment&quot;&gt;; Loading &quot;tex&quot;
+&lt;/span&gt;
+&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:TEX&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+CL-USER&amp;gt; &lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;tex:main&lt;/span&gt;)&lt;/span&gt;
+OK
+NIL
+CL-USER&amp;gt; &lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;br /&gt;
+Providing this went smoothly and your output is similar to mine, we&#039;re ready to move on to the next step!&lt;/p&gt;
+</content> </entry> </feed>
