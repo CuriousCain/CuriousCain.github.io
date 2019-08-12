@@ -1,0 +1,72 @@
+;;;;;
+title: Build a Text Editor in Lisp - Part 1
+tags: lisp, part 1, text editor
+date: 2019-08-10
+format: md
+excerpt: We'll go over the setup and initial code for the series
+;;;;;
+## Introduction
+
+In this series of posts, we'll go over building a text editor in Lisp, based on Antirez' great work on the minimal editor, [Kilo](https://github.com/antirez/kilo), and as an adaptation of the brilliant C-based [Snaptoken tutorials](https://viewsourcecode.org/snaptoken/kilo/index.html).
+
+
+## Setup
+I'll be using [SBCL](http://www.sbcl.org/) and [Quicklisp](https://www.quicklisp.org/beta/) on Linux, so I cannot guarantee all of this will work correctly on Windows or Mac. Platform-specific things will need to be adapted for your chosen OS. I'll try to point these out when I'm aware of them.
+
+We'll start by creating our Quicklisp project.  
+Navigate to your Quicklisp local-projects directory - for me, this is `~/home/quicklisp/local-projects` - and create a new directory for the project (mine is called "tex").  
+In there we'll create two files: `tex.asd` and `tex.lisp`.
+
+`tex.asd` Will contain our project specification and build information, currently as follows:
+
+```lisp
+(asdf:defsystem #:tex
+  :components ((:file "tex")))
+```
+
+`tex.lisp` For now will contain our basic setup code to make sure everything builds and runs smoothly before we start writing any real code.
+
+```lisp
+(defpackage #:tex
+  (:use :cl)
+  (:export main))
+  
+(in-package :tex)
+  
+(defun main ()
+  (format t "OK~%"))
+```
+
+> ##### **NOTE:** Of course, anywhere you see `tex`, you'll want to replace this with your chosen project name.
+
+We define our `tex` package and export its main function, so we can call it from slime or elsewhere later* and use it as the build entry point in a later step, also.  
+We declare that everything below the `(in-package :tex)` line, is read into the `tex` package and so will need to be called with the syntax `(tex:main)`.  
+Lastly, we create our `main` function and use [`format`](http://www.lispworks.com/documentation/HyperSpec/Body/f_format.htm) to print "OK".  
+
+`format` uses [directives](https://www.gnu.org/software/kawa/Format.html) in the control string to interpolate variables, as substitutes for common escaped characters such as newline (`\n`), and for various other text formatting-related helper shortcuts. Here, we use the `~%` directive for its newline purpose. Had we wanted to substitute a variable or other string into the format, we could write something like `(format t "Hello ~a~%" "world!")` which would substitute the `~a` for "world!" and the `~%` will give us the newline, as expected.
+
+> ###### *Parts of this fail to work in slime, for reasons that will become clear in the next part, but for now this will work fine.
+
+We can, now, take this opportunity to run and check that everything works fine. In your slime buffer, or SBCL REPL, enter:  
+
+`(ql:quickload :tex)`  
+`(tex:main)`  
+
+Where `:tex` is the your chosen project name.  
+Your output should look like this:
+
+```lisp
+CL-USER> (ql:quickload :tex)
+To load "tex":
+  Load 1 ASDF system:
+    tex
+; Loading "tex"
+
+(:TEX)
+CL-USER> (tex:main)
+OK
+NIL
+CL-USER> 
+```
+<br />
+Providing this went smoothly and your output is similar to mine, we're ready to move on to the next step!
