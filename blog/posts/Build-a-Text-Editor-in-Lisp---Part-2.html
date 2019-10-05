@@ -1,5 +1,19 @@
-<?xml version="1.0"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"> <channel> <title>Joel Lord</title> <link>/blog</link> <atom:link href="/blog/rss.xml" rel="self" type="application/rss+xml" /> <language>en-us</language> <pubDate>Sat, 05 Oct 2019 02:10:47 +0100</pubDate> <item> <title>Build a Text Editor in Lisp - Part 2</title> <link>/blog/posts/Build-a-Text-Editor-in-Lisp---Part-2.html</link> <pubDate>2019-09-28</pubDate> <author>Joel Lord</author> <guid isPermaLink="true">/blog/posts/Build-a-Text-Editor-in-Lisp---Part-2.html</guid> <category><![CDATA[ lisp ]]></category><category><![CDATA[ part 2 ]]></category><category><![CDATA[ text editor ]]></category><category><![CDATA[ cffi ]]></category> <description><![CDATA[ <h1>Reading User Input</h1>
+<!DOCTYPE html>
+<html lang="en"> <head> <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"> <title>Joel Lord</title> <meta name="viewport" content="width=device-width, initial-scale=1.0"> <link href="/blog/css/bootstrap.min.css" rel="stylesheet" media="screen"> <link href="/blog/css/custom.css" rel="stylesheet" media="screen"> <link rel="alternate" href="/blog/rss.xml" type="application/rss+xml" /> <script type="text/javascript">
+
+  var _gaq = _gaq || [];
+  _gaq.push(['_setAccount', 'foo']);
+  _gaq.push(['_trackPageview']);
+
+  (function() {
+    var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+    ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+    var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+  })();
+
+</script> </head> <body> <div class="container-fluid"> <div class="row-fluid"> <div class="offset2 span8"> <div class="row-fluid"> <div class="navbar navbar-inverse"> <div class="navbar-inner"> <a class="brand" href="/blog">Joel Lord</a> <ul class="nav"> <li> <a href="/">Home</a> </li> </ul> </div> </div> </div> <div class="row-fluid"> <div class="row-fluid">
+<h1 class="page-header">Build a Text Editor in Lisp - Part 2</h1>
+<p> Tagged as <a href="/blog/tag/lisp.html">lisp</a>, <a href="/blog/tag/part-2.html">part 2</a>, <a href="/blog/tag/text-editor.html">text editor</a>, <a href="/blog/tag/cffi.html">cffi</a> </p> <p class="date-posted"> Written on 2019-09-28 </p> <h1>Reading User Input</h1>
 
 <p>We're going to want to read user-input, so we can store it, analyse it, modify it, place it where we want to display it...<br/>
 The original C code does this like so:  </p>
@@ -206,68 +220,7 @@ Lastly, we call our previously-wrapped <code>tcsetattr</code> with a file descri
 <p>You'll know it's working because no text will show onscreen when you type, until you hit 'q' and it'll return you to your regular prompt...<br/>
 Only, because the flags we set during our program persist, we still don't see any typed text! Even after closing down our program!<br/>
 Don't panic, all is working as intended... Sort of :). This only lasts for your current terminal session. You can reset it or close it down and open a fresh one. We'll fix this in the next part!  </p>
- ]]></description> </item><item> <title>Build a Text Editor in Lisp - Part 1</title> <link>/blog/posts/Build-a-Text-Editor-in-Lisp---Part-1.html</link> <pubDate>2019-08-10</pubDate> <author>Joel Lord</author> <guid isPermaLink="true">/blog/posts/Build-a-Text-Editor-in-Lisp---Part-1.html</guid> <category><![CDATA[ lisp ]]></category><category><![CDATA[ part 1 ]]></category><category><![CDATA[ text editor ]]></category> <description><![CDATA[ <h2>Introduction</h2>
+ <ul class="pager"> <li class="previous"><a href="/blog/posts/Build-a-Text-Editor-in-Lisp---Part-1.html">&larr; Previous</a></li>
 
-<p>In this series of posts, we'll go over building a text editor in Lisp, based on Antirez' great work on the minimal editor, <a href="https://github.com/antirez/kilo" >Kilo</a>, and as an adaptation of the brilliant C-based <a href="https://viewsourcecode.org/snaptoken/kilo/index.html" >Snaptoken tutorials</a>.</p>
-
-<h2>Setup</h2>
-
-<p>I'll be using <a href="http://www.sbcl.org/" >SBCL</a> and <a href="https://www.quicklisp.org/beta/" >Quicklisp</a> on Linux, so I cannot guarantee all of this will work correctly on Windows or Mac. Platform-specific things will need to be adapted for your chosen OS. I'll try to point these out when I'm aware of them.</p>
-
-<p>We'll start by creating our Quicklisp project.<br/>
-Navigate to your Quicklisp local-projects directory - for me, this is <code>~/home/quicklisp/local-projects</code> - and create a new directory for the project (mine is called &quot;tex&quot;).<br/>
-In there we'll create two files: <code>tex.asd</code> and <code>tex.lisp</code>.</p>
-
-<p><code>tex.asd</code> Will contain our project specification and build information, currently as follows:</p>
-
-<pre><code><span class="code"><span class="paren1">(<span class="code"><i><span class="symbol">asdf:defsystem</span></i> <span class="keyword">#:tex</span>
-  <span class="keyword">:components</span> <span class="paren2">(<span class="code"><span class="paren3">(<span class="code"><span class="keyword">:file</span> <span class="string">"tex"</span></span>)</span></span>)</span></span>)</span></span></code></pre>
-
-<p><code>tex.lisp</code> For now will contain our basic setup code to make sure everything builds and runs smoothly before we start writing any real code.</p>
-
-<pre><code><span class="code"><span class="paren1">(<span class="code"><i><span class="symbol">defpackage</span></i> <span class="keyword">#:tex</span>
-  <span class="paren2">(<span class="code"><span class="keyword">:use</span> <span class="keyword">:cl</span></span>)</span>
-  <span class="paren2">(<span class="code"><span class="keyword">:export</span> main</span>)</span></span>)</span>
-  
-<span class="paren1">(<span class="code">in-package <span class="keyword">:tex</span></span>)</span>
-  
-<span class="paren1">(<span class="code"><i><span class="symbol">defun</span></i> main <span class="paren2">(<span class="code"></span>)</span>
-  <span class="paren2">(<span class="code">format t <span class="string">"OK~%"</span></span>)</span></span>)</span></span></code></pre>
-
-<blockquote>
-<h5><strong>NOTE:</strong> Of course, anywhere you see <code>tex</code>, you'll want to replace this with your chosen project name.</h5>
-</blockquote>
-
-<p>We define our <code>tex</code> package and export its main function, so we can call it from slime or elsewhere later* and use it as the build entry point in a later step, also.<br/>
-We declare that everything below the <code>(in-package :tex)</code> line, is read into the <code>tex</code> package and so will need to be called with the syntax <code>(tex:main)</code>.<br/>
-Lastly, we create our <code>main</code> function and use <a href="http://www.lispworks.com/documentation/HyperSpec/Body/f_format.htm" ><code>format</code></a> to print &quot;OK&quot;.  </p>
-
-<p><code>format</code> uses <a href="https://www.gnu.org/software/kawa/Format.html" >directives</a> in the control string to interpolate variables, as substitutes for common escaped characters such as newline (<code>\n</code>), and for various other text formatting-related helper shortcuts. Here, we use the <code>~%</code> directive for its newline purpose. Had we wanted to substitute a variable or other string into the format, we could write something like <code>(format t &quot;Hello ~a~%&quot; &quot;world!&quot;)</code> which would substitute the <code>~a</code> for &quot;world!&quot; and the <code>~%</code> will give us the newline, as expected.</p>
-
-<blockquote>
-<h6>*Parts of this fail to work in slime, for reasons that will become clear in the next part, but for now this will work fine.</h6>
-</blockquote>
-
-<p>We can, now, take this opportunity to run and check that everything works fine. In your slime buffer, or SBCL REPL, enter:  </p>
-
-<p><code>(ql:quickload :tex)</code><br/>
-<code>(tex:main)</code>  </p>
-
-<p>Where <code>:tex</code> is the your chosen project name.<br/>
-Your output should look like this:</p>
-
-<pre><code><span class="code">CL-USER&gt; <span class="paren1">(<span class="code">ql:quickload <span class="keyword">:tex</span></span>)</span>
-To load "tex":
-  Load 1 ASDF system:
-    tex
-<span class="comment">; Loading "tex"
-</span>
-<span class="paren1">(<span class="code"><span class="keyword">:TEX</span></span>)</span>
-CL-USER&gt; <span class="paren1">(<span class="code">tex:main</span>)</span>
-OK
-NIL
-CL-USER&gt; </span></code></pre>
-
-<p><br />
-Providing this went smoothly and your output is similar to mine, we're ready to move on to the next step!</p>
- ]]></description> </item> </channel> </rss>
+</ul> </div>
+ </div>  <div class="row-fluid"> <hr> <p class="fineprint">Unless otherwise credited all material <a rel="license" href="http://creativecommons.org/licenses/by-sa/3.0/deed.en_US"> <img alt="Creative Commons License" style="border-width:0" src="/blog/img/cc-by-sa.png" /> </a> by Joel Lord <a id="coleslaw-logo" href="https://github.com/redline6561/coleslaw"> <img src="/blog/img/logo_small.jpg" alt="Coleslaw logo" /></p> </a> </div> </div> </div> </div> <script src="/blog/js/bootstrap.min.js"></script> </body> </html>

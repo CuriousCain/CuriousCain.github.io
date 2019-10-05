@@ -1,0 +1,243 @@
+;;;;;
+title: Build a Text Editor in Lisp - Part 2
+tags: lisp, part 2, text editor, cffi
+date: 2019-10-05
+format: md
+excerpt: We'll go over reading input and an introduction to CFFI and Grovel
+;;;;;
+# Reading User Input  
+
+We're going to want to read user-input, so we can store it, analyse it, modify it, place it where we want to display it...  
+The original C code does this like so:  
+
+```c
+char c;
+while (read(STDIN_FILENO, &c, 1) == 1);
+```
+
+Reading from standard input, into the defined `c` variable, 1 byte; so, 1 character at a time.  
+Let's do the same in Lisp:
+
+
+```lisp
+(do ((c (read-char) (read-char *standard-input* nil 'the-end)))
+    ((char-equal c #\q)))
+```
+
+We read a character at a time and store it in `c`, from standard-input until it comes across a "q" character.  
+If we run this right now, we'll see that it shows each character typed on screen until we press enter and then read-char takes each character typed in serial and stores it in c.  
+This is not the behaviour we're looking for. We want to read *each* character, *as it's typed*, into our c variable. To do this, we're going to need to enter our standard input's **raw mode.**  
+**Raw**, or **uncooked**, mode allows the terminal to pass the input data directly to our program, without doing any preprocessing. This is what we want, so we can manipulate any and all input for our editor.  
+If we didn't enter uncooked mode, then we would have a very difficult time responding to key combinations (such as CTRL-F, for example) or manipulating text in various ways.  
+
+To enter this mode, we're going to need to make some POSIX system calls to change the terminal settings flags. We'll take these one call at a time, starting with disabling echo.  
+Making these calls in C is easy, but fortunately for us with a Lisp, it's presents a challenge... We all like a challenge, right? :)  
+Let's take this opportunity to delve into CFFI.  
+<br />
+
+# CFFI and CFFI-Grovel  
+
+Since we want to make system calls, which aren't available in Lisp's standard library, we're going to need to A) Find a library, or B) Write our own.  
+Given we're learning here, we're going to go with B and write our own.  
+
+To enter raw mode, one of the first flags we need to set is echo off. There's a POSIX structure that manages these flags for us, and specific functions made available to allow us to modify these flags.  
+In a regular C program, we can include `termios.h` and manipulate these as we wish. In Lisp, however, this isn't readily available. So let's make it available!  
+
+
+We need access to the `termios` structure in `termios.h` and its get/setter functions `tcgetattr` and `tcsetattr`. To do this, we need to make use of CFFI and CFFI-grovel.  
+These allow us to call into platform-native libraries and write wrappers around their respective datatypes.
+
+We're going to need to make some heavy modifications to our project file here, but I will explain afterwards.
+
+Modify your `tex.asd` so it looks something like this:
+
+```lisp
+(asdf:defsystem #:tex
+  :defsystem-depends-on (:cffi-grovel)
+  :depends-on (:cffi)
+  :serial t
+  :components ((:file "package")
+               (:cffi-grovel-file "termios-types")
+               (:cffi-wrapper-file "termios-wrapper")
+               (:file "tex"))
+  :build-operation "program-op"
+  :build-pathname "tex"
+  :entry-point "tex:main")
+```
+We've added `:defsystem-depends-on (:cffi-grovel)`. Grovel takes wrappers around C structures and generates Lisp-accesible datatypes. The reason we use `:defsystem-depends-on` is because this package is only necessary for developing: it's not used at runtime.  
+Next, we add `:serial t` because Grovel generates code that other files depend on; so we need to make sure our build runs sequentially. For example: declare package -> generate C types -> generate C function wrappers -> compile/run Lisp code dependent on the previous build steps.  
+We add three new files to our `:components` list here, `:file "package"` where we're going to refactor our package definition and imports into. `:cffi-grovel-file "termios-types"` where we will declare our wrapper around the termios struct and its dependent types. `:cffi-wrapper-file "termios-wrapper"` where we write the wrappers around `tcgetattr` and `tcsetattr`.  
+The last three lines are added so we can compile an executable from our code to test it later.  
+
+In our `package.lisp` file, add the following:
+
+```lisp
+(in-package #:common-lisp-user)
+
+(defpackage #:tex
+  (:use :cl)
+  (export main))
+```
+
+And then remove the `defpackage` section from our original `tex.lisp`, leaving `(in-package :tex)`.  
+
+Create ourselves a `termios-types.lisp` file. In here we're going to add the following, for now:  
+
+```lisp
+(in-package :tex)
+
+(include "termios.h")
+```
+
+We tell Grovel that we want to include the `termios.h` header file, so we gain access to its contents.  
+This header file is a sort of top-level header, which includes other termios-related structures, functions and constants. Thankfully, we only need to include this one. But if we want to see the underlying code, we've got to do some digging. I've included the snippets of relevant code in this tutorial so you don't have to search for them.  
+The relevant sections for this part are these:  
+
+
+```c
+int tcgetattr(int fd, struct termios *termios_p);
+
+int tcsetattr(int fd, int optional_actions, const struct termios *termios_p);
+```
+
+And, since both of these functions take a struct as a parameter, we need the termios struct too:
+
+
+```c
+struct termios
+  {
+    tcflag_t c_iflag;		/* input mode flags */
+    tcflag_t c_oflag;		/* output mode flags */
+    tcflag_t c_cflag;		/* control mode flags */
+    tcflag_t c_lflag;		/* local mode flags */
+    cc_t c_line;			/* line discipline */
+    cc_t c_cc[NCCS];		/* control characters */
+    speed_t c_ispeed;		/* input speed */
+    speed_t c_ospeed;		/* output speed */
+#define _HAVE_STRUCT_TERMIOS_C_ISPEED 1
+#define _HAVE_STRUCT_TERMIOS_C_OSPEED 1
+  };
+```
+<br />
+
+# Grovel syntax  
+
+Let's take a look at Grovel syntax and how we can apply its functionality. Referring to the termios struct, it makes use of the types `tcflag_t`, `cc_t`, and `speed_t`. It also refers to a constant, `NCCS`.  
+Grovel syntax for pointing out types and constants to the generator, are to use the `ctype` and `constant` forms, respectively.  
+These are detailed [here](https://common-lisp.net/project/cffi/manual/html_node/Groveller-Syntax.html#Groveller-Syntax), but I'll outline the ones we use here, for convenience.
+
+`(ctype lisp-name size-designator)`
+where `lisp-name` refers to what we want to call this type, or refer to it as in our code, and `size-designator` is the c-type we're wrapping.  
+
+`(constant (lisp-name &rest c-names) &key type documentation optional)`
+just like the `ctype` form, `lisp-name` refers to what we'll call the constant in our Lisp code, while the `c-name` will be the name of the constant, as defined in the C header.  
+The keyword argument `type` lets Grovel parse the constant into Lisp as either an integer or a double.  
+`optional` is a boolean that specifies whether or not to raise an error if the `c-name` is not found in the C header: True disables raising an error, and false will cause an error to be raised in the absence of the specified `c-names`.  
+
+In our `termios-types.lisp` we'll declare the constant and dependent types: `NCCS`, `tcflag_t`, `cc_t` and `speed_t`, first:  
+
+```lisp
+(ctype tcflag "tcflag_t")
+(ctype cc "cc_t")
+(ctype termios-speed "speed_t")
+
+(constant (nccs "NCCS"))
+```
+
+Now we can define the termios struct using the following form syntax:
+`(cstruct lisp-name c-name slots)`
+as with the previous forms, `lisp-name` is our name for the struct, `c-name` is the name as-defined in the C header. `slots` is a list of forms with the syntax `(lisp-name c-name &key type count (signed t))` where `type` refers to one of our wrapped ctypes from earlier, `count` is used for array size and `signed` is used for signed or unsigned types.
+
+```lisp
+(cstruct termios "struct termios"
+         (iflag "c_iflag" :type tcflag)
+         (oflag "c_oflag" :type tcflag)
+         (cflag "c_cflag" :type tcflag)
+         (lflag "c_lflag" :type tcflag)
+         (cline "c_line" :type cc)
+         (control-chars "c_cc" :type cc :count nccs)
+         (cispeed "c_ispeed" :type termios-speed)
+         (cospeed "c_ospeed" :type termios-speed))
+```
+
+Now we can test this out in SLIME or our SBCL (or your chosen Lisp implementation's) REPL.  
+Quickload the project again to allow cffi/grovel to generate and import the Lisp-versions of the wrapped C-types, and then move into our package: `(in-package :tex)`  
+
+Next, we can use the `(cffi:with-foreign-object (var type &optional count) &body body)` form, to check whether we get a pointer back for our defined termios struct:  
+
+```lisp
+(cffi:with-foreign-object (test '(:struct termios))
+  test)
+```
+
+Here we create an object in Lisp, of the defined termios struct (which is going to be a foreign pointer) and then just return it. Your output should be similar:  
+
+`#.(SB-SYS:INT-SAP #X7F3480D6FFB8)`
+
+This is a foreign pointer to a C struct! (or function, or other type, but in our case it's our termios struct). If you get the same result, it looks like our type wrappers are set up correctly and we can move on to the last portion.  
+
+<br />
+
+## Wrapping functions  
+
+Now we have our termios struct, we can use it in the methods we need to change our terminal flags. Hopefully you remember `tcgetattr` and `tcsetattr` I mentioned earlier :)  
+Let's remind ourselves of the function signatures:  
+
+```c
+int tcgetattr(int fd, struct termios *termios_p);
+
+int tcsetattr(int fd, int optional_actions, const struct termios *termios_p);
+```
+
+At the beginning of this part, we created a `termios-wrapper.lisp` file and added it to our build steps. Now's the time to fill it out. We'll declare it's in our package and include the `termios.h` header file so CFFI knows where to correlate our wrappers with their corresponding C definitions.  
+
+```lisp
+(in-package :tex)
+
+(include "termios.h")
+
+(defwrapper ("tcgetattr" tcgetattr) :int
+  (fd :int)
+  (termios-p :pointer))
+
+(defwrapper ("tcsetattr" tcsetattr) :pointer
+  (fd :int)
+  (optional-actions :int)
+  (termios-p :pointer))
+```
+
+The form for defwrapper is `(defwrapper (name-and-options) return-type &rest args)`  
+So we're telling CFFI we're wrapping a function called `tcgetattr` and its lisp name is also going to be `tcgetattr`, the return type is `:int` (and `:pointer` for tcsetattr) and it takes an int for its file descriptor argument, a pointer for its termios argument - and in the case of `tcsetattr` it's also going to take an int for its optional-actions argument.  
+
+After running CFFI over the file with a quickload of our project, we're free to use these definitions in our package!  
+
+<br />
+
+## Setting the terminal flags  
+
+Now we can define some lisp functions that make use of our C-function wrappers.  
+If we remember earlier when we used `cffi:with-foreign-object`, we'll apply that here and define a function `set-tcattrs` that makes use of our struct, wrappers and CFFI's foreign-object helper:  
+
+```lisp
+(defun set-tcattrs ()
+  (cffi:with-foreign-object (term '(:struct termios))
+    (cffi:with-foreign-slots ((lflag) term (:struct termios))
+      (setf lflag (logandc2 lflag echo)))
+    (tcsetattr 0 tcsaflush term)))
+```
+
+We create our foreign-object `term` with type `:struct termios` and pull out its `lflag` slot. Next we set the `echo` bit to zero and keep everything else as it was using `logandc2` which is the logical 'and' of the first argument and the complement of the second. Essentially, this allows us to shorten the bitwise operation from `(logand lflag (lognot echo))`.  
+Lastly, we call our previously-wrapped `tcsetattr` with a file descriptor of 0 (standard input - we'll define a constant for this later), an optional argument `tcsaflush` (which we defined earlier as a constant) and our termios struct `term`. Let's combine this with our earlier code for reading characters.  
+
+> ##### **NOTE:** Your terminal will persist the changes to echo after running the code. This is correct behaviour, for now.
+
+```lisp
+(set-tcattrs)
+(do ((c (read-char) (read-char *standard-input* nil 'the-end)))
+    ((char-equal c #\q)))
+```
+
+You'll know it's working because no text will show onscreen when you type, until you hit 'q' and it'll return you to your regular prompt...  
+Only, because the flags we set during our program persist, we still don't see any typed text! Even after closing down our program!  
+Don't panic, all is working as intended... Sort of :). This only lasts for your current terminal session. You can reset it or close it down and open a fresh one. We'll fix this in the next part!  
+

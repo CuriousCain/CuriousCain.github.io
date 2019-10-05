@@ -1,5 +1,212 @@
 <?xml version="1.0"?>
-<feed xmlns="http://www.w3.org/2005/Atom"> <title>CuriousCain</title> <link href="/blog"/> <link type="application/atom+xml" rel="self" href="/blog/atom.xml"/> <updated>Mon, 12 Aug 2019 20:00:50 +0100</updated> <author> <name>Joel Lord</name> </author> <entry> <link type="text/html" rel="alternate" href="/blog/posts/Build-a-Text-Editor-in-Lisp---Part-1.html"/> <title>Build a Text Editor in Lisp - Part 1</title> <published>2019-08-10</published> <updated>2019-08-10</updated> <author> <name>Joel Lord</name> <uri>/blog</uri> </author> <content type="html">&lt;h2&gt;Introduction&lt;/h2&gt;
+<feed xmlns="http://www.w3.org/2005/Atom"> <title>Joel Lord</title> <link href="/blog"/> <link type="application/atom+xml" rel="self" href="/blog/atom.xml"/> <updated>Sat, 05 Oct 2019 02:10:47 +0100</updated> <author> <name>Joel Lord</name> </author> <entry> <link type="text/html" rel="alternate" href="/blog/posts/Build-a-Text-Editor-in-Lisp---Part-2.html"/> <title>Build a Text Editor in Lisp - Part 2</title> <published>2019-09-28</published> <updated>2019-09-28</updated> <author> <name>Joel Lord</name> <uri>/blog</uri> </author> <content type="html">&lt;h1&gt;Reading User Input&lt;/h1&gt;
+
+&lt;p&gt;We&#039;re going to want to read user-input, so we can store it, analyse it, modify it, place it where we want to display it...&lt;br/&gt;
+The original C code does this like so:  &lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;symbol&quot;&gt;char&lt;/span&gt; c;
+&lt;span class=&quot;symbol&quot;&gt;while&lt;/span&gt; &lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;read&lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;STDIN_FILENO, &amp;amp;c, 1&lt;/span&gt;)&lt;/span&gt; == 1&lt;/span&gt;)&lt;/span&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Reading from standard input, into the defined &lt;code&gt;c&lt;/code&gt; variable, 1 byte; so, 1 character at a time.&lt;br/&gt;
+Let&#039;s do the same in Lisp:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;do &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren3&quot;&gt;(&lt;span class=&quot;code&quot;&gt;c &lt;span class=&quot;paren4&quot;&gt;(&lt;span class=&quot;code&quot;&gt;read-char&lt;/span&gt;)&lt;/span&gt; &lt;span class=&quot;paren4&quot;&gt;(&lt;span class=&quot;code&quot;&gt;read-char &lt;span class=&quot;special&quot;&gt;*standard-input*&lt;/span&gt; nil &#039;the-end&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+    &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren3&quot;&gt;(&lt;span class=&quot;code&quot;&gt;char-equal c &lt;span class=&quot;character&quot;&gt;#\q&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;We read a character at a time and store it in &lt;code&gt;c&lt;/code&gt;, from standard-input until it comes across a &amp;quot;q&amp;quot; character.&lt;br/&gt;
+If we run this right now, we&#039;ll see that it shows each character typed on screen until we press enter and then read-char takes each character typed in serial and stores it in c.&lt;br/&gt;
+This is not the behaviour we&#039;re looking for. We want to read &lt;em&gt;each&lt;/em&gt; character, &lt;em&gt;as it&#039;s typed&lt;/em&gt;, into our c variable. To do this, we&#039;re going to need to enter our standard input&#039;s &lt;strong&gt;raw mode.&lt;/strong&gt;&lt;br/&gt;
+&lt;strong&gt;Raw&lt;/strong&gt;, or &lt;strong&gt;uncooked&lt;/strong&gt;, mode allows the terminal to pass the input data directly to our program, without doing any preprocessing. This is what we want, so we can manipulate any and all input for our editor.&lt;br/&gt;
+If we didn&#039;t enter uncooked mode, then we would have a very difficult time responding to key combinations (such as CTRL-F, for example) or manipulating text in various ways.  &lt;/p&gt;
+
+&lt;p&gt;To enter this mode, we&#039;re going to need to make some POSIX system calls to change the terminal settings flags. We&#039;ll take these one call at a time, starting with disabling echo.&lt;br/&gt;
+Making these calls in C is easy, but fortunately for us with a Lisp, it&#039;s presents a challenge... We all like a challenge, right? :)&lt;br/&gt;
+Let&#039;s take this opportunity to delve into CFFI.&lt;br/&gt;
+&lt;br /&gt;&lt;/p&gt;
+
+&lt;h1&gt;CFFI and CFFI-Grovel&lt;/h1&gt;
+
+&lt;p&gt;Since we want to make system calls, which aren&#039;t available in Lisp&#039;s standard library, we&#039;re going to need to A) Find a library, or B) Write our own.&lt;br/&gt;
+Given we&#039;re learning here, we&#039;re going to go with B and write our own.  &lt;/p&gt;
+
+&lt;p&gt;To enter raw mode, one of the first flags we need to set is echo off. There&#039;s a POSIX structure that manages these flags for us, and specific functions made available to allow us to modify these flags.&lt;br/&gt;
+In a regular C program, we can include &lt;code&gt;termios.h&lt;/code&gt; and manipulate these as we wish. In Lisp, however, this isn&#039;t readily available. So let&#039;s make it available!  &lt;/p&gt;
+
+&lt;p&gt;We need access to the &lt;code&gt;termios&lt;/code&gt; structure in &lt;code&gt;termios.h&lt;/code&gt; and its get/setter functions &lt;code&gt;tcgetattr&lt;/code&gt; and &lt;code&gt;tcsetattr&lt;/code&gt;. To do this, we need to make use of CFFI and CFFI-grovel.&lt;br/&gt;
+These allow us to call into platform-native libraries and write wrappers around their respective datatypes.&lt;/p&gt;
+
+&lt;p&gt;We&#039;re going to need to make some heavy modifications to our project file here, but I will explain afterwards.&lt;/p&gt;
+
+&lt;p&gt;Modify your &lt;code&gt;tex.asd&lt;/code&gt; so it looks something like this:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;i&gt;&lt;span class=&quot;symbol&quot;&gt;asdf:defsystem&lt;/span&gt;&lt;/i&gt; &lt;span class=&quot;keyword&quot;&gt;#:tex&lt;/span&gt;
+  &lt;span class=&quot;keyword&quot;&gt;:defsystem-depends-on&lt;/span&gt; &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:cffi-grovel&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+  &lt;span class=&quot;keyword&quot;&gt;:depends-on&lt;/span&gt; &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:cffi&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+  &lt;span class=&quot;keyword&quot;&gt;:serial&lt;/span&gt; t
+  &lt;span class=&quot;keyword&quot;&gt;:components&lt;/span&gt; &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren3&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:file&lt;/span&gt; &lt;span class=&quot;string&quot;&gt;&quot;package&quot;&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+               &lt;span class=&quot;paren3&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:cffi-grovel-file&lt;/span&gt; &lt;span class=&quot;string&quot;&gt;&quot;termios-types&quot;&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+               &lt;span class=&quot;paren3&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:cffi-wrapper-file&lt;/span&gt; &lt;span class=&quot;string&quot;&gt;&quot;termios-wrapper&quot;&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+               &lt;span class=&quot;paren3&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:file&lt;/span&gt; &lt;span class=&quot;string&quot;&gt;&quot;tex&quot;&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+  &lt;span class=&quot;keyword&quot;&gt;:build-operation&lt;/span&gt; &lt;span class=&quot;string&quot;&gt;&quot;program-op&quot;&lt;/span&gt;
+  &lt;span class=&quot;keyword&quot;&gt;:build-pathname&lt;/span&gt; &lt;span class=&quot;string&quot;&gt;&quot;tex&quot;&lt;/span&gt;
+  &lt;span class=&quot;keyword&quot;&gt;:entry-point&lt;/span&gt; &lt;span class=&quot;string&quot;&gt;&quot;tex:main&quot;&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;We&#039;ve added &lt;code&gt;:defsystem-depends-on (:cffi-grovel)&lt;/code&gt;. Grovel takes wrappers around C structures and generates Lisp-accesible datatypes. The reason we use &lt;code&gt;:defsystem-depends-on&lt;/code&gt; is because this package is only necessary for developing: it&#039;s not used at runtime.&lt;br/&gt;
+Next, we add &lt;code&gt;:serial t&lt;/code&gt; because Grovel generates code that other files depend on; so we need to make sure our build runs sequentially. For example: declare package -&amp;gt; generate C types -&amp;gt; generate C function wrappers -&amp;gt; compile/run Lisp code dependent on the previous build steps.&lt;br/&gt;
+We add three new files to our &lt;code&gt;:components&lt;/code&gt; list here, &lt;code&gt;:file &amp;quot;package&amp;quot;&lt;/code&gt; where we&#039;re going to refactor our package definition and imports into. &lt;code&gt;:cffi-grovel-file &amp;quot;termios-types&amp;quot;&lt;/code&gt; where we will declare our wrapper around the termios struct and its dependent types. &lt;code&gt;:cffi-wrapper-file &amp;quot;termios-wrapper&amp;quot;&lt;/code&gt; where we write the wrappers around &lt;code&gt;tcgetattr&lt;/code&gt; and &lt;code&gt;tcsetattr&lt;/code&gt;.&lt;br/&gt;
+The last three lines are added so we can compile an executable from our code to test it later.  &lt;/p&gt;
+
+&lt;p&gt;In our &lt;code&gt;package.lisp&lt;/code&gt; file, add the following:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;in-package &lt;span class=&quot;keyword&quot;&gt;#:common-lisp-user&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;i&gt;&lt;span class=&quot;symbol&quot;&gt;defpackage&lt;/span&gt;&lt;/i&gt; &lt;span class=&quot;keyword&quot;&gt;#:tex&lt;/span&gt;
+  &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:use&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;:cl&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+  &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;export main&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;And then remove the &lt;code&gt;defpackage&lt;/code&gt; section from our original &lt;code&gt;tex.lisp&lt;/code&gt;, leaving &lt;code&gt;(in-package :tex)&lt;/code&gt;.  &lt;/p&gt;
+
+&lt;p&gt;Create ourselves a &lt;code&gt;termios-types.lisp&lt;/code&gt; file. In here we&#039;re going to add the following, for now:  &lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;in-package &lt;span class=&quot;keyword&quot;&gt;:tex&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;include &lt;span class=&quot;string&quot;&gt;&quot;termios.h&quot;&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;We tell Grovel that we want to include the &lt;code&gt;termios.h&lt;/code&gt; header file, so we gain access to its contents.&lt;br/&gt;
+This header file is a sort of top-level header, which includes other termios-related structures, functions and constants. Thankfully, we only need to include this one. But if we want to see the underlying code, we&#039;ve got to do some digging. I&#039;ve included the snippets of relevant code in this tutorial so you don&#039;t have to search for them.&lt;br/&gt;
+The relevant sections for this part are these:  &lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;symbol&quot;&gt;int&lt;/span&gt; tcgetattr&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;symbol&quot;&gt;int&lt;/span&gt; fd, &lt;span class=&quot;symbol&quot;&gt;struct&lt;/span&gt; termios *termios_p&lt;/span&gt;)&lt;/span&gt;;
+
+&lt;span class=&quot;symbol&quot;&gt;int&lt;/span&gt; tcsetattr&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;symbol&quot;&gt;int&lt;/span&gt; fd, &lt;span class=&quot;symbol&quot;&gt;int&lt;/span&gt; optional_actions, &lt;span class=&quot;symbol&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;symbol&quot;&gt;struct&lt;/span&gt; termios *termios_p&lt;/span&gt;)&lt;/span&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;And, since both of these functions take a struct as a parameter, we need the termios struct too:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;symbol&quot;&gt;struct&lt;/span&gt; termios
+  &lt;span class=&quot;paren1&quot;&gt;{&lt;span class=&quot;code&quot;&gt;
+    tcflag_t c_iflag;       &lt;span class=&quot;comment&quot;&gt;/* input mode flags */&lt;/span&gt;
+    tcflag_t c_oflag;       &lt;span class=&quot;comment&quot;&gt;/* output mode flags */&lt;/span&gt;
+    tcflag_t c_cflag;       &lt;span class=&quot;comment&quot;&gt;/* control mode flags */&lt;/span&gt;
+    tcflag_t c_lflag;       &lt;span class=&quot;comment&quot;&gt;/* local mode flags */&lt;/span&gt;
+    cc_t c_line;            &lt;span class=&quot;comment&quot;&gt;/* line discipline */&lt;/span&gt;
+    cc_t c_cc&lt;span class=&quot;paren2&quot;&gt;[&lt;span class=&quot;code&quot;&gt;NCCS&lt;/span&gt;]&lt;/span&gt;;        &lt;span class=&quot;comment&quot;&gt;/* control characters */&lt;/span&gt;
+    speed_t c_ispeed;       &lt;span class=&quot;comment&quot;&gt;/* input speed */&lt;/span&gt;
+    speed_t c_ospeed;       &lt;span class=&quot;comment&quot;&gt;/* output speed */&lt;/span&gt;
+&lt;span class=&quot;special&quot;&gt;#define _HAVE_STRUCT_TERMIOS_C_ISPEED 1
+&lt;/span&gt;&lt;span class=&quot;special&quot;&gt;#define _HAVE_STRUCT_TERMIOS_C_OSPEED 1
+&lt;/span&gt;  &lt;/span&gt;}&lt;/span&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;br /&gt;&lt;/p&gt;
+
+&lt;h1&gt;Grovel syntax&lt;/h1&gt;
+
+&lt;p&gt;Let&#039;s take a look at Grovel syntax and how we can apply its functionality. Referring to the termios struct, it makes use of the types &lt;code&gt;tcflag_t&lt;/code&gt;, &lt;code&gt;cc_t&lt;/code&gt;, and &lt;code&gt;speed_t&lt;/code&gt;. It also refers to a constant, &lt;code&gt;NCCS&lt;/code&gt;.&lt;br/&gt;
+Grovel syntax for pointing out types and constants to the generator, are to use the &lt;code&gt;ctype&lt;/code&gt; and &lt;code&gt;constant&lt;/code&gt; forms, respectively.&lt;br/&gt;
+These are detailed &lt;a href=&quot;https://common-lisp.net/project/cffi/manual/html_node/Groveller-Syntax.html#Groveller-Syntax&quot; &gt;here&lt;/a&gt;, but I&#039;ll outline the ones we use here, for convenience.&lt;/p&gt;
+
+&lt;p&gt;&lt;code&gt;(ctype lisp-name size-designator)&lt;/code&gt;
+where &lt;code&gt;lisp-name&lt;/code&gt; refers to what we want to call this type, or refer to it as in our code, and &lt;code&gt;size-designator&lt;/code&gt; is the c-type we&#039;re wrapping.  &lt;/p&gt;
+
+&lt;p&gt;&lt;code&gt;(constant (lisp-name &amp;amp;rest c-names) &amp;amp;key type documentation optional)&lt;/code&gt;
+just like the &lt;code&gt;ctype&lt;/code&gt; form, &lt;code&gt;lisp-name&lt;/code&gt; refers to what we&#039;ll call the constant in our Lisp code, while the &lt;code&gt;c-name&lt;/code&gt; will be the name of the constant, as defined in the C header.&lt;br/&gt;
+The keyword argument &lt;code&gt;type&lt;/code&gt; lets Grovel parse the constant into Lisp as either an integer or a double.&lt;br/&gt;
+&lt;code&gt;optional&lt;/code&gt; is a boolean that specifies whether or not to raise an error if the &lt;code&gt;c-name&lt;/code&gt; is not found in the C header: True disables raising an error, and false will cause an error to be raised in the absence of the specified &lt;code&gt;c-names&lt;/code&gt;.  &lt;/p&gt;
+
+&lt;p&gt;In our &lt;code&gt;termios-types.lisp&lt;/code&gt; we&#039;ll declare the constant and dependent types: &lt;code&gt;NCCS&lt;/code&gt;, &lt;code&gt;tcflag_t&lt;/code&gt;, &lt;code&gt;cc_t&lt;/code&gt; and &lt;code&gt;speed_t&lt;/code&gt;, first:  &lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;ctype tcflag &lt;span class=&quot;string&quot;&gt;&quot;tcflag_t&quot;&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;ctype cc &lt;span class=&quot;string&quot;&gt;&quot;cc_t&quot;&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;ctype termios-speed &lt;span class=&quot;string&quot;&gt;&quot;speed_t&quot;&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;constant &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;nccs &lt;span class=&quot;string&quot;&gt;&quot;NCCS&quot;&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now we can define the termios struct using the following form syntax:
+&lt;code&gt;(cstruct lisp-name c-name slots)&lt;/code&gt;
+as with the previous forms, &lt;code&gt;lisp-name&lt;/code&gt; is our name for the struct, &lt;code&gt;c-name&lt;/code&gt; is the name as-defined in the C header. &lt;code&gt;slots&lt;/code&gt; is a list of forms with the syntax &lt;code&gt;(lisp-name c-name &amp;amp;key type count (signed t))&lt;/code&gt; where &lt;code&gt;type&lt;/code&gt; refers to one of our wrapped ctypes from earlier, &lt;code&gt;count&lt;/code&gt; is used for array size and &lt;code&gt;signed&lt;/code&gt; is used for signed or unsigned types.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;cstruct termios &lt;span class=&quot;string&quot;&gt;&quot;struct termios&quot;&lt;/span&gt;
+         &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;iflag &lt;span class=&quot;string&quot;&gt;&quot;c_iflag&quot;&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;:type&lt;/span&gt; tcflag&lt;/span&gt;)&lt;/span&gt;
+         &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;oflag &lt;span class=&quot;string&quot;&gt;&quot;c_oflag&quot;&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;:type&lt;/span&gt; tcflag&lt;/span&gt;)&lt;/span&gt;
+         &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;cflag &lt;span class=&quot;string&quot;&gt;&quot;c_cflag&quot;&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;:type&lt;/span&gt; tcflag&lt;/span&gt;)&lt;/span&gt;
+         &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;lflag &lt;span class=&quot;string&quot;&gt;&quot;c_lflag&quot;&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;:type&lt;/span&gt; tcflag&lt;/span&gt;)&lt;/span&gt;
+         &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;cline &lt;span class=&quot;string&quot;&gt;&quot;c_line&quot;&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;:type&lt;/span&gt; cc&lt;/span&gt;)&lt;/span&gt;
+         &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;control-chars &lt;span class=&quot;string&quot;&gt;&quot;c_cc&quot;&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;:type&lt;/span&gt; cc &lt;span class=&quot;keyword&quot;&gt;:count&lt;/span&gt; nccs&lt;/span&gt;)&lt;/span&gt;
+         &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;cispeed &lt;span class=&quot;string&quot;&gt;&quot;c_ispeed&quot;&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;:type&lt;/span&gt; termios-speed&lt;/span&gt;)&lt;/span&gt;
+         &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;cospeed &lt;span class=&quot;string&quot;&gt;&quot;c_ospeed&quot;&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;:type&lt;/span&gt; termios-speed&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now we can test this out in SLIME or our SBCL (or your chosen Lisp implementation&#039;s) REPL.&lt;br/&gt;
+Quickload the project again to allow cffi/grovel to generate and import the Lisp-versions of the wrapped C-types, and then move into our package: &lt;code&gt;(in-package :tex)&lt;/code&gt;  &lt;/p&gt;
+
+&lt;p&gt;Next, we can use the &lt;code&gt;(cffi:with-foreign-object (var type &amp;amp;optional count) &amp;amp;body body)&lt;/code&gt; form, to check whether we get a pointer back for our defined termios struct:  &lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;i&gt;&lt;span class=&quot;symbol&quot;&gt;cffi:with-foreign-object&lt;/span&gt;&lt;/i&gt; &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;test &#039;&lt;span class=&quot;paren3&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:struct&lt;/span&gt; termios&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+  test&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Here we create an object in Lisp, of the defined termios struct (which is going to be a foreign pointer) and then just return it. Your output should be similar:  &lt;/p&gt;
+
+&lt;p&gt;&lt;code&gt;#.(SB-SYS:INT-SAP #X7F3480D6FFB8)&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;This is a foreign pointer to a C struct! (or function, or other type, but in our case it&#039;s our termios struct). If you get the same result, it looks like our type wrappers are set up correctly and we can move on to the last portion.  &lt;/p&gt;
+
+&lt;p&gt;&lt;br /&gt;&lt;/p&gt;
+
+&lt;h2&gt;Wrapping functions&lt;/h2&gt;
+
+&lt;p&gt;Now we have our termios struct, we can use it in the methods we need to change our terminal flags. Hopefully you remember &lt;code&gt;tcgetattr&lt;/code&gt; and &lt;code&gt;tcsetattr&lt;/code&gt; I mentioned earlier :)&lt;br/&gt;
+Let&#039;s remind ourselves of the function signatures:  &lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;symbol&quot;&gt;int&lt;/span&gt; tcgetattr&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;symbol&quot;&gt;int&lt;/span&gt; fd, &lt;span class=&quot;symbol&quot;&gt;struct&lt;/span&gt; termios *termios_p&lt;/span&gt;)&lt;/span&gt;;
+
+&lt;span class=&quot;symbol&quot;&gt;int&lt;/span&gt; tcsetattr&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;symbol&quot;&gt;int&lt;/span&gt; fd, &lt;span class=&quot;symbol&quot;&gt;int&lt;/span&gt; optional_actions, &lt;span class=&quot;symbol&quot;&gt;const&lt;/span&gt; &lt;span class=&quot;symbol&quot;&gt;struct&lt;/span&gt; termios *termios_p&lt;/span&gt;)&lt;/span&gt;;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;At the beginning of this part, we created a &lt;code&gt;termios-wrapper.lisp&lt;/code&gt; file and added it to our build steps. Now&#039;s the time to fill it out. We&#039;ll declare it&#039;s in our package and include the &lt;code&gt;termios.h&lt;/code&gt; header file so CFFI knows where to correlate our wrappers with their corresponding C definitions.  &lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;in-package &lt;span class=&quot;keyword&quot;&gt;:tex&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;include &lt;span class=&quot;string&quot;&gt;&quot;termios.h&quot;&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;i&gt;&lt;span class=&quot;symbol&quot;&gt;defwrapper&lt;/span&gt;&lt;/i&gt; &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;string&quot;&gt;&quot;tcgetattr&quot;&lt;/span&gt; tcgetattr&lt;/span&gt;)&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;:int&lt;/span&gt;
+  &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;fd &lt;span class=&quot;keyword&quot;&gt;:int&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+  &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;termios-p &lt;span class=&quot;keyword&quot;&gt;:pointer&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+
+&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;i&gt;&lt;span class=&quot;symbol&quot;&gt;defwrapper&lt;/span&gt;&lt;/i&gt; &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;string&quot;&gt;&quot;tcsetattr&quot;&lt;/span&gt; tcsetattr&lt;/span&gt;)&lt;/span&gt; &lt;span class=&quot;keyword&quot;&gt;:pointer&lt;/span&gt;
+  &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;fd &lt;span class=&quot;keyword&quot;&gt;:int&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+  &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;optional-actions &lt;span class=&quot;keyword&quot;&gt;:int&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+  &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;termios-p &lt;span class=&quot;keyword&quot;&gt;:pointer&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The form for defwrapper is &lt;code&gt;(defwrapper (name-and-options) return-type &amp;amp;rest args)&lt;/code&gt;&lt;br/&gt;
+So we&#039;re telling CFFI we&#039;re wrapping a function called &lt;code&gt;tcgetattr&lt;/code&gt; and its lisp name is also going to be &lt;code&gt;tcgetattr&lt;/code&gt;, the return type is &lt;code&gt;:int&lt;/code&gt; (and &lt;code&gt;:pointer&lt;/code&gt; for tcsetattr) and it takes an int for its file descriptor argument, a pointer for its termios argument - and in the case of &lt;code&gt;tcsetattr&lt;/code&gt; it&#039;s also going to take an int for its optional-actions argument.  &lt;/p&gt;
+
+&lt;p&gt;After running CFFI over the file with a quickload of our project, we&#039;re free to use these definitions in our package!  &lt;/p&gt;
+
+&lt;p&gt;&lt;br /&gt;&lt;/p&gt;
+
+&lt;h2&gt;Setting the terminal flags&lt;/h2&gt;
+
+&lt;p&gt;Now we can define some lisp functions that make use of our C-function wrappers.&lt;br/&gt;
+If we remember earlier when we used &lt;code&gt;cffi:with-foreign-object&lt;/code&gt;, we&#039;ll apply that here and define a function &lt;code&gt;set-tcattrs&lt;/code&gt; that makes use of our struct, wrappers and CFFI&#039;s foreign-object helper:  &lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;i&gt;&lt;span class=&quot;symbol&quot;&gt;defun&lt;/span&gt;&lt;/i&gt; set-tcattrs &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;/span&gt;)&lt;/span&gt;
+  &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;i&gt;&lt;span class=&quot;symbol&quot;&gt;cffi:with-foreign-object&lt;/span&gt;&lt;/i&gt; &lt;span class=&quot;paren3&quot;&gt;(&lt;span class=&quot;code&quot;&gt;term &#039;&lt;span class=&quot;paren4&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:struct&lt;/span&gt; termios&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+    &lt;span class=&quot;paren3&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;i&gt;&lt;span class=&quot;symbol&quot;&gt;cffi:with-foreign-slots&lt;/span&gt;&lt;/i&gt; &lt;span class=&quot;paren4&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren5&quot;&gt;(&lt;span class=&quot;code&quot;&gt;lflag&lt;/span&gt;)&lt;/span&gt; term &lt;span class=&quot;paren5&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;keyword&quot;&gt;:struct&lt;/span&gt; termios&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+      &lt;span class=&quot;paren4&quot;&gt;(&lt;span class=&quot;code&quot;&gt;setf lflag &lt;span class=&quot;paren5&quot;&gt;(&lt;span class=&quot;code&quot;&gt;logandc2 lflag echo&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+    &lt;span class=&quot;paren3&quot;&gt;(&lt;span class=&quot;code&quot;&gt;tcsetattr 0 tcsaflush term&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;We create our foreign-object &lt;code&gt;term&lt;/code&gt; with type &lt;code&gt;:struct termios&lt;/code&gt; and pull out its &lt;code&gt;lflag&lt;/code&gt; slot. Next we set the &lt;code&gt;echo&lt;/code&gt; bit to zero and keep everything else as it was using &lt;code&gt;logandc2&lt;/code&gt; which is the logical &#039;and&#039; of the first argument and the complement of the second. Essentially, this allows us to shorten the bitwise operation from &lt;code&gt;(logand lflag (lognot echo))&lt;/code&gt;.&lt;br/&gt;
+Lastly, we call our previously-wrapped &lt;code&gt;tcsetattr&lt;/code&gt; with a file descriptor of 0 (standard input - we&#039;ll define a constant for this later), an optional argument &lt;code&gt;tcsaflush&lt;/code&gt; (which we defined earlier as a constant) and our termios struct &lt;code&gt;term&lt;/code&gt;. Let&#039;s combine this with our earlier code for reading characters.  &lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;h5&gt;&lt;strong&gt;NOTE:&lt;/strong&gt; Your terminal will persist the changes to echo after running the code. This is correct behaviour, for now.&lt;/h5&gt;
+&lt;/blockquote&gt;
+
+&lt;pre&gt;&lt;code&gt;&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;set-tcattrs&lt;/span&gt;)&lt;/span&gt;
+&lt;span class=&quot;paren1&quot;&gt;(&lt;span class=&quot;code&quot;&gt;do &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren3&quot;&gt;(&lt;span class=&quot;code&quot;&gt;c &lt;span class=&quot;paren4&quot;&gt;(&lt;span class=&quot;code&quot;&gt;read-char&lt;/span&gt;)&lt;/span&gt; &lt;span class=&quot;paren4&quot;&gt;(&lt;span class=&quot;code&quot;&gt;read-char &lt;span class=&quot;special&quot;&gt;*standard-input*&lt;/span&gt; nil &#039;the-end&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;
+    &lt;span class=&quot;paren2&quot;&gt;(&lt;span class=&quot;code&quot;&gt;&lt;span class=&quot;paren3&quot;&gt;(&lt;span class=&quot;code&quot;&gt;char-equal c &lt;span class=&quot;character&quot;&gt;#\q&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;)&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;You&#039;ll know it&#039;s working because no text will show onscreen when you type, until you hit &#039;q&#039; and it&#039;ll return you to your regular prompt...&lt;br/&gt;
+Only, because the flags we set during our program persist, we still don&#039;t see any typed text! Even after closing down our program!&lt;br/&gt;
+Don&#039;t panic, all is working as intended... Sort of :). This only lasts for your current terminal session. You can reset it or close it down and open a fresh one. We&#039;ll fix this in the next part!  &lt;/p&gt;
+</content> </entry><entry> <link type="text/html" rel="alternate" href="/blog/posts/Build-a-Text-Editor-in-Lisp---Part-1.html"/> <title>Build a Text Editor in Lisp - Part 1</title> <published>2019-08-10</published> <updated>2019-08-10</updated> <author> <name>Joel Lord</name> <uri>/blog</uri> </author> <content type="html">&lt;h2&gt;Introduction&lt;/h2&gt;
 
 &lt;p&gt;In this series of posts, we&#039;ll go over building a text editor in Lisp, based on Antirez&#039; great work on the minimal editor, &lt;a href=&quot;https://github.com/antirez/kilo&quot; &gt;Kilo&lt;/a&gt;, and as an adaptation of the brilliant C-based &lt;a href=&quot;https://viewsourcecode.org/snaptoken/kilo/index.html&quot; &gt;Snaptoken tutorials&lt;/a&gt;.&lt;/p&gt;
 

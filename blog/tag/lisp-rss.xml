@@ -1,5 +1,212 @@
 <?xml version="1.0"?>
-<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"> <channel> <title>CuriousCain</title> <link>/blog</link> <atom:link href="/blog/rss.xml" rel="self" type="application/rss+xml" /> <language>en-us</language> <pubDate>Mon, 12 Aug 2019 20:00:50 +0100</pubDate> <item> <title>Build a Text Editor in Lisp - Part 1</title> <link>/blog/posts/Build-a-Text-Editor-in-Lisp---Part-1.html</link> <pubDate>2019-08-10</pubDate> <author>Joel Lord</author> <guid isPermaLink="true">/blog/posts/Build-a-Text-Editor-in-Lisp---Part-1.html</guid> <category><![CDATA[ lisp ]]></category><category><![CDATA[ part 1 ]]></category><category><![CDATA[ text editor ]]></category> <description><![CDATA[ <h2>Introduction</h2>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"> <channel> <title>Joel Lord</title> <link>/blog</link> <atom:link href="/blog/rss.xml" rel="self" type="application/rss+xml" /> <language>en-us</language> <pubDate>Sat, 05 Oct 2019 02:10:47 +0100</pubDate> <item> <title>Build a Text Editor in Lisp - Part 2</title> <link>/blog/posts/Build-a-Text-Editor-in-Lisp---Part-2.html</link> <pubDate>2019-09-28</pubDate> <author>Joel Lord</author> <guid isPermaLink="true">/blog/posts/Build-a-Text-Editor-in-Lisp---Part-2.html</guid> <category><![CDATA[ lisp ]]></category><category><![CDATA[ part 2 ]]></category><category><![CDATA[ text editor ]]></category><category><![CDATA[ cffi ]]></category> <description><![CDATA[ <h1>Reading User Input</h1>
+
+<p>We're going to want to read user-input, so we can store it, analyse it, modify it, place it where we want to display it...<br/>
+The original C code does this like so:  </p>
+
+<pre><code><span class="code"><span class="symbol">char</span> c;
+<span class="symbol">while</span> <span class="paren1">(<span class="code">read<span class="paren2">(<span class="code">STDIN_FILENO, &amp;c, 1</span>)</span> == 1</span>)</span>;</span></code></pre>
+
+<p>Reading from standard input, into the defined <code>c</code> variable, 1 byte; so, 1 character at a time.<br/>
+Let's do the same in Lisp:</p>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code">do <span class="paren2">(<span class="code"><span class="paren3">(<span class="code">c <span class="paren4">(<span class="code">read-char</span>)</span> <span class="paren4">(<span class="code">read-char <span class="special">*standard-input*</span> nil 'the-end</span>)</span></span>)</span></span>)</span>
+    <span class="paren2">(<span class="code"><span class="paren3">(<span class="code">char-equal c <span class="character">#\q</span></span>)</span></span>)</span></span>)</span></span></code></pre>
+
+<p>We read a character at a time and store it in <code>c</code>, from standard-input until it comes across a &quot;q&quot; character.<br/>
+If we run this right now, we'll see that it shows each character typed on screen until we press enter and then read-char takes each character typed in serial and stores it in c.<br/>
+This is not the behaviour we're looking for. We want to read <em>each</em> character, <em>as it's typed</em>, into our c variable. To do this, we're going to need to enter our standard input's <strong>raw mode.</strong><br/>
+<strong>Raw</strong>, or <strong>uncooked</strong>, mode allows the terminal to pass the input data directly to our program, without doing any preprocessing. This is what we want, so we can manipulate any and all input for our editor.<br/>
+If we didn't enter uncooked mode, then we would have a very difficult time responding to key combinations (such as CTRL-F, for example) or manipulating text in various ways.  </p>
+
+<p>To enter this mode, we're going to need to make some POSIX system calls to change the terminal settings flags. We'll take these one call at a time, starting with disabling echo.<br/>
+Making these calls in C is easy, but fortunately for us with a Lisp, it's presents a challenge... We all like a challenge, right? :)<br/>
+Let's take this opportunity to delve into CFFI.<br/>
+<br /></p>
+
+<h1>CFFI and CFFI-Grovel</h1>
+
+<p>Since we want to make system calls, which aren't available in Lisp's standard library, we're going to need to A) Find a library, or B) Write our own.<br/>
+Given we're learning here, we're going to go with B and write our own.  </p>
+
+<p>To enter raw mode, one of the first flags we need to set is echo off. There's a POSIX structure that manages these flags for us, and specific functions made available to allow us to modify these flags.<br/>
+In a regular C program, we can include <code>termios.h</code> and manipulate these as we wish. In Lisp, however, this isn't readily available. So let's make it available!  </p>
+
+<p>We need access to the <code>termios</code> structure in <code>termios.h</code> and its get/setter functions <code>tcgetattr</code> and <code>tcsetattr</code>. To do this, we need to make use of CFFI and CFFI-grovel.<br/>
+These allow us to call into platform-native libraries and write wrappers around their respective datatypes.</p>
+
+<p>We're going to need to make some heavy modifications to our project file here, but I will explain afterwards.</p>
+
+<p>Modify your <code>tex.asd</code> so it looks something like this:</p>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code"><i><span class="symbol">asdf:defsystem</span></i> <span class="keyword">#:tex</span>
+  <span class="keyword">:defsystem-depends-on</span> <span class="paren2">(<span class="code"><span class="keyword">:cffi-grovel</span></span>)</span>
+  <span class="keyword">:depends-on</span> <span class="paren2">(<span class="code"><span class="keyword">:cffi</span></span>)</span>
+  <span class="keyword">:serial</span> t
+  <span class="keyword">:components</span> <span class="paren2">(<span class="code"><span class="paren3">(<span class="code"><span class="keyword">:file</span> <span class="string">"package"</span></span>)</span>
+               <span class="paren3">(<span class="code"><span class="keyword">:cffi-grovel-file</span> <span class="string">"termios-types"</span></span>)</span>
+               <span class="paren3">(<span class="code"><span class="keyword">:cffi-wrapper-file</span> <span class="string">"termios-wrapper"</span></span>)</span>
+               <span class="paren3">(<span class="code"><span class="keyword">:file</span> <span class="string">"tex"</span></span>)</span></span>)</span>
+  <span class="keyword">:build-operation</span> <span class="string">"program-op"</span>
+  <span class="keyword">:build-pathname</span> <span class="string">"tex"</span>
+  <span class="keyword">:entry-point</span> <span class="string">"tex:main"</span></span>)</span></span></code></pre>
+
+<p>We've added <code>:defsystem-depends-on (:cffi-grovel)</code>. Grovel takes wrappers around C structures and generates Lisp-accesible datatypes. The reason we use <code>:defsystem-depends-on</code> is because this package is only necessary for developing: it's not used at runtime.<br/>
+Next, we add <code>:serial t</code> because Grovel generates code that other files depend on; so we need to make sure our build runs sequentially. For example: declare package -&gt; generate C types -&gt; generate C function wrappers -&gt; compile/run Lisp code dependent on the previous build steps.<br/>
+We add three new files to our <code>:components</code> list here, <code>:file &quot;package&quot;</code> where we're going to refactor our package definition and imports into. <code>:cffi-grovel-file &quot;termios-types&quot;</code> where we will declare our wrapper around the termios struct and its dependent types. <code>:cffi-wrapper-file &quot;termios-wrapper&quot;</code> where we write the wrappers around <code>tcgetattr</code> and <code>tcsetattr</code>.<br/>
+The last three lines are added so we can compile an executable from our code to test it later.  </p>
+
+<p>In our <code>package.lisp</code> file, add the following:</p>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code">in-package <span class="keyword">#:common-lisp-user</span></span>)</span>
+
+<span class="paren1">(<span class="code"><i><span class="symbol">defpackage</span></i> <span class="keyword">#:tex</span>
+  <span class="paren2">(<span class="code"><span class="keyword">:use</span> <span class="keyword">:cl</span></span>)</span>
+  <span class="paren2">(<span class="code">export main</span>)</span></span>)</span></span></code></pre>
+
+<p>And then remove the <code>defpackage</code> section from our original <code>tex.lisp</code>, leaving <code>(in-package :tex)</code>.  </p>
+
+<p>Create ourselves a <code>termios-types.lisp</code> file. In here we're going to add the following, for now:  </p>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code">in-package <span class="keyword">:tex</span></span>)</span>
+
+<span class="paren1">(<span class="code">include <span class="string">"termios.h"</span></span>)</span></span></code></pre>
+
+<p>We tell Grovel that we want to include the <code>termios.h</code> header file, so we gain access to its contents.<br/>
+This header file is a sort of top-level header, which includes other termios-related structures, functions and constants. Thankfully, we only need to include this one. But if we want to see the underlying code, we've got to do some digging. I've included the snippets of relevant code in this tutorial so you don't have to search for them.<br/>
+The relevant sections for this part are these:  </p>
+
+<pre><code><span class="code"><span class="symbol">int</span> tcgetattr<span class="paren1">(<span class="code"><span class="symbol">int</span> fd, <span class="symbol">struct</span> termios *termios_p</span>)</span>;
+
+<span class="symbol">int</span> tcsetattr<span class="paren1">(<span class="code"><span class="symbol">int</span> fd, <span class="symbol">int</span> optional_actions, <span class="symbol">const</span> <span class="symbol">struct</span> termios *termios_p</span>)</span>;</span></code></pre>
+
+<p>And, since both of these functions take a struct as a parameter, we need the termios struct too:</p>
+
+<pre><code><span class="code"><span class="symbol">struct</span> termios
+  <span class="paren1">{<span class="code">
+    tcflag_t c_iflag;       <span class="comment">/* input mode flags */</span>
+    tcflag_t c_oflag;       <span class="comment">/* output mode flags */</span>
+    tcflag_t c_cflag;       <span class="comment">/* control mode flags */</span>
+    tcflag_t c_lflag;       <span class="comment">/* local mode flags */</span>
+    cc_t c_line;            <span class="comment">/* line discipline */</span>
+    cc_t c_cc<span class="paren2">[<span class="code">NCCS</span>]</span>;        <span class="comment">/* control characters */</span>
+    speed_t c_ispeed;       <span class="comment">/* input speed */</span>
+    speed_t c_ospeed;       <span class="comment">/* output speed */</span>
+<span class="special">#define _HAVE_STRUCT_TERMIOS_C_ISPEED 1
+</span><span class="special">#define _HAVE_STRUCT_TERMIOS_C_OSPEED 1
+</span>  </span>}</span>;</span></code></pre>
+
+<p><br /></p>
+
+<h1>Grovel syntax</h1>
+
+<p>Let's take a look at Grovel syntax and how we can apply its functionality. Referring to the termios struct, it makes use of the types <code>tcflag_t</code>, <code>cc_t</code>, and <code>speed_t</code>. It also refers to a constant, <code>NCCS</code>.<br/>
+Grovel syntax for pointing out types and constants to the generator, are to use the <code>ctype</code> and <code>constant</code> forms, respectively.<br/>
+These are detailed <a href="https://common-lisp.net/project/cffi/manual/html_node/Groveller-Syntax.html#Groveller-Syntax" >here</a>, but I'll outline the ones we use here, for convenience.</p>
+
+<p><code>(ctype lisp-name size-designator)</code>
+where <code>lisp-name</code> refers to what we want to call this type, or refer to it as in our code, and <code>size-designator</code> is the c-type we're wrapping.  </p>
+
+<p><code>(constant (lisp-name &amp;rest c-names) &amp;key type documentation optional)</code>
+just like the <code>ctype</code> form, <code>lisp-name</code> refers to what we'll call the constant in our Lisp code, while the <code>c-name</code> will be the name of the constant, as defined in the C header.<br/>
+The keyword argument <code>type</code> lets Grovel parse the constant into Lisp as either an integer or a double.<br/>
+<code>optional</code> is a boolean that specifies whether or not to raise an error if the <code>c-name</code> is not found in the C header: True disables raising an error, and false will cause an error to be raised in the absence of the specified <code>c-names</code>.  </p>
+
+<p>In our <code>termios-types.lisp</code> we'll declare the constant and dependent types: <code>NCCS</code>, <code>tcflag_t</code>, <code>cc_t</code> and <code>speed_t</code>, first:  </p>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code">ctype tcflag <span class="string">"tcflag_t"</span></span>)</span>
+<span class="paren1">(<span class="code">ctype cc <span class="string">"cc_t"</span></span>)</span>
+<span class="paren1">(<span class="code">ctype termios-speed <span class="string">"speed_t"</span></span>)</span>
+
+<span class="paren1">(<span class="code">constant <span class="paren2">(<span class="code">nccs <span class="string">"NCCS"</span></span>)</span></span>)</span></span></code></pre>
+
+<p>Now we can define the termios struct using the following form syntax:
+<code>(cstruct lisp-name c-name slots)</code>
+as with the previous forms, <code>lisp-name</code> is our name for the struct, <code>c-name</code> is the name as-defined in the C header. <code>slots</code> is a list of forms with the syntax <code>(lisp-name c-name &amp;key type count (signed t))</code> where <code>type</code> refers to one of our wrapped ctypes from earlier, <code>count</code> is used for array size and <code>signed</code> is used for signed or unsigned types.</p>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code">cstruct termios <span class="string">"struct termios"</span>
+         <span class="paren2">(<span class="code">iflag <span class="string">"c_iflag"</span> <span class="keyword">:type</span> tcflag</span>)</span>
+         <span class="paren2">(<span class="code">oflag <span class="string">"c_oflag"</span> <span class="keyword">:type</span> tcflag</span>)</span>
+         <span class="paren2">(<span class="code">cflag <span class="string">"c_cflag"</span> <span class="keyword">:type</span> tcflag</span>)</span>
+         <span class="paren2">(<span class="code">lflag <span class="string">"c_lflag"</span> <span class="keyword">:type</span> tcflag</span>)</span>
+         <span class="paren2">(<span class="code">cline <span class="string">"c_line"</span> <span class="keyword">:type</span> cc</span>)</span>
+         <span class="paren2">(<span class="code">control-chars <span class="string">"c_cc"</span> <span class="keyword">:type</span> cc <span class="keyword">:count</span> nccs</span>)</span>
+         <span class="paren2">(<span class="code">cispeed <span class="string">"c_ispeed"</span> <span class="keyword">:type</span> termios-speed</span>)</span>
+         <span class="paren2">(<span class="code">cospeed <span class="string">"c_ospeed"</span> <span class="keyword">:type</span> termios-speed</span>)</span></span>)</span></span></code></pre>
+
+<p>Now we can test this out in SLIME or our SBCL (or your chosen Lisp implementation's) REPL.<br/>
+Quickload the project again to allow cffi/grovel to generate and import the Lisp-versions of the wrapped C-types, and then move into our package: <code>(in-package :tex)</code>  </p>
+
+<p>Next, we can use the <code>(cffi:with-foreign-object (var type &amp;optional count) &amp;body body)</code> form, to check whether we get a pointer back for our defined termios struct:  </p>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code"><i><span class="symbol">cffi:with-foreign-object</span></i> <span class="paren2">(<span class="code">test '<span class="paren3">(<span class="code"><span class="keyword">:struct</span> termios</span>)</span></span>)</span>
+  test</span>)</span></span></code></pre>
+
+<p>Here we create an object in Lisp, of the defined termios struct (which is going to be a foreign pointer) and then just return it. Your output should be similar:  </p>
+
+<p><code>#.(SB-SYS:INT-SAP #X7F3480D6FFB8)</code></p>
+
+<p>This is a foreign pointer to a C struct! (or function, or other type, but in our case it's our termios struct). If you get the same result, it looks like our type wrappers are set up correctly and we can move on to the last portion.  </p>
+
+<p><br /></p>
+
+<h2>Wrapping functions</h2>
+
+<p>Now we have our termios struct, we can use it in the methods we need to change our terminal flags. Hopefully you remember <code>tcgetattr</code> and <code>tcsetattr</code> I mentioned earlier :)<br/>
+Let's remind ourselves of the function signatures:  </p>
+
+<pre><code><span class="code"><span class="symbol">int</span> tcgetattr<span class="paren1">(<span class="code"><span class="symbol">int</span> fd, <span class="symbol">struct</span> termios *termios_p</span>)</span>;
+
+<span class="symbol">int</span> tcsetattr<span class="paren1">(<span class="code"><span class="symbol">int</span> fd, <span class="symbol">int</span> optional_actions, <span class="symbol">const</span> <span class="symbol">struct</span> termios *termios_p</span>)</span>;</span></code></pre>
+
+<p>At the beginning of this part, we created a <code>termios-wrapper.lisp</code> file and added it to our build steps. Now's the time to fill it out. We'll declare it's in our package and include the <code>termios.h</code> header file so CFFI knows where to correlate our wrappers with their corresponding C definitions.  </p>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code">in-package <span class="keyword">:tex</span></span>)</span>
+
+<span class="paren1">(<span class="code">include <span class="string">"termios.h"</span></span>)</span>
+
+<span class="paren1">(<span class="code"><i><span class="symbol">defwrapper</span></i> <span class="paren2">(<span class="code"><span class="string">"tcgetattr"</span> tcgetattr</span>)</span> <span class="keyword">:int</span>
+  <span class="paren2">(<span class="code">fd <span class="keyword">:int</span></span>)</span>
+  <span class="paren2">(<span class="code">termios-p <span class="keyword">:pointer</span></span>)</span></span>)</span>
+
+<span class="paren1">(<span class="code"><i><span class="symbol">defwrapper</span></i> <span class="paren2">(<span class="code"><span class="string">"tcsetattr"</span> tcsetattr</span>)</span> <span class="keyword">:pointer</span>
+  <span class="paren2">(<span class="code">fd <span class="keyword">:int</span></span>)</span>
+  <span class="paren2">(<span class="code">optional-actions <span class="keyword">:int</span></span>)</span>
+  <span class="paren2">(<span class="code">termios-p <span class="keyword">:pointer</span></span>)</span></span>)</span></span></code></pre>
+
+<p>The form for defwrapper is <code>(defwrapper (name-and-options) return-type &amp;rest args)</code><br/>
+So we're telling CFFI we're wrapping a function called <code>tcgetattr</code> and its lisp name is also going to be <code>tcgetattr</code>, the return type is <code>:int</code> (and <code>:pointer</code> for tcsetattr) and it takes an int for its file descriptor argument, a pointer for its termios argument - and in the case of <code>tcsetattr</code> it's also going to take an int for its optional-actions argument.  </p>
+
+<p>After running CFFI over the file with a quickload of our project, we're free to use these definitions in our package!  </p>
+
+<p><br /></p>
+
+<h2>Setting the terminal flags</h2>
+
+<p>Now we can define some lisp functions that make use of our C-function wrappers.<br/>
+If we remember earlier when we used <code>cffi:with-foreign-object</code>, we'll apply that here and define a function <code>set-tcattrs</code> that makes use of our struct, wrappers and CFFI's foreign-object helper:  </p>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code"><i><span class="symbol">defun</span></i> set-tcattrs <span class="paren2">(<span class="code"></span>)</span>
+  <span class="paren2">(<span class="code"><i><span class="symbol">cffi:with-foreign-object</span></i> <span class="paren3">(<span class="code">term '<span class="paren4">(<span class="code"><span class="keyword">:struct</span> termios</span>)</span></span>)</span>
+    <span class="paren3">(<span class="code"><i><span class="symbol">cffi:with-foreign-slots</span></i> <span class="paren4">(<span class="code"><span class="paren5">(<span class="code">lflag</span>)</span> term <span class="paren5">(<span class="code"><span class="keyword">:struct</span> termios</span>)</span></span>)</span>
+      <span class="paren4">(<span class="code">setf lflag <span class="paren5">(<span class="code">logandc2 lflag echo</span>)</span></span>)</span></span>)</span>
+    <span class="paren3">(<span class="code">tcsetattr 0 tcsaflush term</span>)</span></span>)</span></span>)</span></span></code></pre>
+
+<p>We create our foreign-object <code>term</code> with type <code>:struct termios</code> and pull out its <code>lflag</code> slot. Next we set the <code>echo</code> bit to zero and keep everything else as it was using <code>logandc2</code> which is the logical 'and' of the first argument and the complement of the second. Essentially, this allows us to shorten the bitwise operation from <code>(logand lflag (lognot echo))</code>.<br/>
+Lastly, we call our previously-wrapped <code>tcsetattr</code> with a file descriptor of 0 (standard input - we'll define a constant for this later), an optional argument <code>tcsaflush</code> (which we defined earlier as a constant) and our termios struct <code>term</code>. Let's combine this with our earlier code for reading characters.  </p>
+
+<blockquote>
+<h5><strong>NOTE:</strong> Your terminal will persist the changes to echo after running the code. This is correct behaviour, for now.</h5>
+</blockquote>
+
+<pre><code><span class="code"><span class="paren1">(<span class="code">set-tcattrs</span>)</span>
+<span class="paren1">(<span class="code">do <span class="paren2">(<span class="code"><span class="paren3">(<span class="code">c <span class="paren4">(<span class="code">read-char</span>)</span> <span class="paren4">(<span class="code">read-char <span class="special">*standard-input*</span> nil 'the-end</span>)</span></span>)</span></span>)</span>
+    <span class="paren2">(<span class="code"><span class="paren3">(<span class="code">char-equal c <span class="character">#\q</span></span>)</span></span>)</span></span>)</span></span></code></pre>
+
+<p>You'll know it's working because no text will show onscreen when you type, until you hit 'q' and it'll return you to your regular prompt...<br/>
+Only, because the flags we set during our program persist, we still don't see any typed text! Even after closing down our program!<br/>
+Don't panic, all is working as intended... Sort of :). This only lasts for your current terminal session. You can reset it or close it down and open a fresh one. We'll fix this in the next part!  </p>
+ ]]></description> </item><item> <title>Build a Text Editor in Lisp - Part 1</title> <link>/blog/posts/Build-a-Text-Editor-in-Lisp---Part-1.html</link> <pubDate>2019-08-10</pubDate> <author>Joel Lord</author> <guid isPermaLink="true">/blog/posts/Build-a-Text-Editor-in-Lisp---Part-1.html</guid> <category><![CDATA[ lisp ]]></category><category><![CDATA[ part 1 ]]></category><category><![CDATA[ text editor ]]></category> <description><![CDATA[ <h2>Introduction</h2>
 
 <p>In this series of posts, we'll go over building a text editor in Lisp, based on Antirez' great work on the minimal editor, <a href="https://github.com/antirez/kilo" >Kilo</a>, and as an adaptation of the brilliant C-based <a href="https://viewsourcecode.org/snaptoken/kilo/index.html" >Snaptoken tutorials</a>.</p>
 
