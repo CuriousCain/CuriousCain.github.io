@@ -221,12 +221,13 @@ If we remember earlier when we used `cffi:with-foreign-object`, we'll apply that
 ```lisp
 (defun set-tcattrs ()
   (cffi:with-foreign-object (term '(:struct termios))
+    (tcgetattr 0 term)
     (cffi:with-foreign-slots ((lflag) term (:struct termios))
       (setf lflag (logandc2 lflag echo)))
     (tcsetattr 0 tcsaflush term)))
 ```
 
-We create our foreign-object `term` with type `:struct termios` and pull out its `lflag` slot. Next we set the `echo` bit to zero and keep everything else as it was using `logandc2` which is the logical 'and' of the first argument and the complement of the second. Essentially, this allows us to shorten the bitwise operation from `(logand lflag (lognot echo))`.  
+We create our foreign-object `term` with type `:struct termios` and fill out the struct with its current values using `tcgetattr` before pulling out its `lflag` slot. Next we set the `echo` bit to zero and keep everything else as it was using `logandc2` which is the logical 'and' of the first argument and the complement of the second. Essentially, this allows us to shorten the bitwise operation from `(logand lflag (lognot echo))`.  
 Lastly, we call our previously-wrapped `tcsetattr` with a file descriptor of 0 (standard input - we'll define a constant for this later), an optional argument `tcsaflush` (which we defined earlier as a constant) and our termios struct `term`. Let's combine this with our earlier code for reading characters.  
 
 > ##### **NOTE:** Your terminal will persist the changes to echo after running the code. This is correct behaviour, for now.
