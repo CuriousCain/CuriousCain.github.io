@@ -13,7 +13,7 @@
 
 </script> </head> <body> <div class="container-fluid"> <div class="row-fluid"> <div class="offset2 span8"> <div class="row-fluid"> <div class="navbar navbar-inverse"> <div class="navbar-inner"> <a class="brand" href="/blog">Joel Lord</a> <ul class="nav"> <li> <a href="/">Home</a> </li> </ul> </div> </div> </div> <div class="row-fluid"> <div class="row-fluid">
 <h1 class="page-header">Build a Text Editor in Lisp - Part 2</h1>
-<p> Tagged as <a href="/blog/tag/lisp.html">lisp</a>, <a href="/blog/tag/part-2.html">part 2</a>, <a href="/blog/tag/text-editor.html">text editor</a>, <a href="/blog/tag/cffi.html">cffi</a> </p> <p class="date-posted"> Written on 2019-09-28 </p> <h1>Reading User Input</h1>
+<p> Tagged as <a href="/blog/tag/lisp.html">lisp</a>, <a href="/blog/tag/part-2.html">part 2</a>, <a href="/blog/tag/text-editor.html">text editor</a>, <a href="/blog/tag/cffi.html">cffi</a> </p> <p class="date-posted"> Written on 2019-10-05 </p> <h1>Reading User Input</h1>
 
 <p>We're going to want to read user-input, so we can store it, analyse it, modify it, place it where we want to display it...<br/>
 The original C code does this like so:  </p>
@@ -202,11 +202,12 @@ If we remember earlier when we used <code>cffi:with-foreign-object</code>, we'll
 
 <pre><code><span class="code"><span class="paren1">(<span class="code"><i><span class="symbol">defun</span></i> set-tcattrs <span class="paren2">(<span class="code"></span>)</span>
   <span class="paren2">(<span class="code"><i><span class="symbol">cffi:with-foreign-object</span></i> <span class="paren3">(<span class="code">term '<span class="paren4">(<span class="code"><span class="keyword">:struct</span> termios</span>)</span></span>)</span>
+    <span class="paren3">(<span class="code">tcgetattr 0 term</span>)</span>
     <span class="paren3">(<span class="code"><i><span class="symbol">cffi:with-foreign-slots</span></i> <span class="paren4">(<span class="code"><span class="paren5">(<span class="code">lflag</span>)</span> term <span class="paren5">(<span class="code"><span class="keyword">:struct</span> termios</span>)</span></span>)</span>
       <span class="paren4">(<span class="code">setf lflag <span class="paren5">(<span class="code">logandc2 lflag echo</span>)</span></span>)</span></span>)</span>
     <span class="paren3">(<span class="code">tcsetattr 0 tcsaflush term</span>)</span></span>)</span></span>)</span></span></code></pre>
 
-<p>We create our foreign-object <code>term</code> with type <code>:struct termios</code> and pull out its <code>lflag</code> slot. Next we set the <code>echo</code> bit to zero and keep everything else as it was using <code>logandc2</code> which is the logical 'and' of the first argument and the complement of the second. Essentially, this allows us to shorten the bitwise operation from <code>(logand lflag (lognot echo))</code>.<br/>
+<p>We create our foreign-object <code>term</code> with type <code>:struct termios</code> and fill out the struct with its current values using <code>tcgetattr</code> before pulling out its <code>lflag</code> slot. Next we set the <code>echo</code> bit to zero and keep everything else as it was using <code>logandc2</code> which is the logical 'and' of the first argument and the complement of the second. Essentially, this allows us to shorten the bitwise operation from <code>(logand lflag (lognot echo))</code>.<br/>
 Lastly, we call our previously-wrapped <code>tcsetattr</code> with a file descriptor of 0 (standard input - we'll define a constant for this later), an optional argument <code>tcsaflush</code> (which we defined earlier as a constant) and our termios struct <code>term</code>. Let's combine this with our earlier code for reading characters.  </p>
 
 <blockquote>
